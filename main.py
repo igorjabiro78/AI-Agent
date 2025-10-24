@@ -1,9 +1,11 @@
 
-!pip install feedparser requests transformers yagmail
-
-import feedparser, requests, yagmail
-from transformers import pipeline
+import feedparser
+import requests
+import smtplib
 import os
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from datetime import datetime
 
 summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
 
