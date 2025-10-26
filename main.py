@@ -1,54 +1,91 @@
-
 import feedparser
-import requests
 import smtplib
 import os
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import datetime
 
-summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
+# === CONFIGURATION ===
+RECIPIENT = "djvix20211@gmail.com"
+EMAIL = os.getenv("EMAIL")           # Gmail address from GitHub Secrets
+EMAIL_PASS = os.getenv("EMAIL_PASS") # Gmail App Password from GitHub Secrets
+NUM_ARTICLES = 10
 
-def summarize_text(text):
-    try:
-        return summarizer(text, max_length=100, min_length=30, do_sample=False)[0]['summary_text']
-    except:
-        return text[:200] + "..."
-
-sources = {
-    "VentureBeat AI": "https://venturebeat.com/category/ai/feed/",
+# === SOURCES ===
+SOURCES = {
     "The Gradient": "https://thegradient.pub/rss/",
-    "Towards Data Science": "https://towardsdatascience.com/feed",
-    "Papers With Code": "https://paperswithcode.com/feeds/latest",
-    "Medium AI": "https://medium.com/feed/tag/artificial-intelligence",  # Medium AI tag
-    "Medium ML": "https://medium.com/feed/tag/machine-learning",         # Medium ML tag
-    "Medium CV": "https://medium.com/feed/tag/computer-vision"
+    "VentureBeat AI": "https://venturebeat.com/category/ai/feed/",
+    "Papers with Code": "https://paperswithcode.com/rss",
+    "Medium AI": "https://medium.com/feed/tag/artificial-intelligence",
+    "Medium Computer Vision": "https://medium.com/feed/tag/computer-vision"
 }
 
-articles = []
+# === SIMPLE SUMMARIZER ===
+def summarize_text(text, max_sentences=2):
+    """
+    Basic free summarizer that just extracts first few sentences.
+    Keeps costs at $0 (no LLMs or APIs).
+    """
+    sentences = text.split('. ')
+    return '. '.join(sentences[:max_sentences]) + '.' if sentences else text
 
-for source, url in sources.items():
-    feed = feedparser.parse(url)
-    for entry in feed.entries[:5]:
-        summary = summarize_text(entry.get("summary", entry.get("description", "")))
-        articles.append({
-            "source": source,
-            "title": entry.title,
-            "link": entry.link,
-            "summary": summary
-        })
+# === FETCH ARTICLES ===
+def fetch_articles():
+    articles = []
+    for name, url in SOURCES.items():
+        try:
+            feed = feedparser.parse(url)
+            for entry in feed.entries[:NUM_ARTICLES]:
+                summary = summarize_text(entry.get('summary', 'No summary available.'))
+                articles.append({
+                    "source": name,
+                    "title": entry.title,
+                    "link": entry.link,
+                    "summary": summary
+                })
+        except Exception as e:
+            print(f"⚠️ Error fetching from {name}: {e}")
+    return articles
 
-articles = sorted(articles, key=lambda x: x["title"])[:10]
+# === EMAIL BUILDER ===
+def build_email(articles):
+    html = "<h2>🧠 AI Research & Tech Digest</h2>"
+    html += f"<p>Date: {datetime.now().strftime('%Y-%m-%d')}</p>"
+    html += "<hr>"
+    for art in articles:
+        html += f"""
+        <h3>{art['title']}</h3>
+        <p><b>Source:</b> {art['source']}</p>
+        <p>{art['summary']}</p>
+        <p><a href="{art['link']}">Read full article</a></p>
+        <hr>
+        """
+    return html
 
-body = "🧠 **Top 10 AI Research & Tech Updates**\n\n"
-for i, art in enumerate(articles, 1):
-    body += f"{i}. [{art['title']}]({art['link']})\n   _{art['summary']}_\n   **Source:** {art['source']}\n\n"
+# === SEND EMAIL ===
+def send_email(subject, body):
+    msg = MIMEMultipart()
+    msg["From"] = EMAIL
+    msg["To"] = RECIPIENT
+    msg["Subject"] = subject
+    msg.attach(MIMEText(body, "html"))
 
-sender_email = os.environ.get("EMAIL")
-app_password = os.environ.get("EMAIL_PASS")
-receiver_email = "djvix2021@gmail.com"
+    try:
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(EMAIL, EMAIL_PASS)
+            server.send_message(msg)
+            print("✅ Email sent successfully!")
+    except Exception as e:
+        print("❌ Error sending email:", e)
 
-yag = yagmail.SMTP(user=sender_email, password=app_password)
-yag.send(to=receiver_email, subject="AI Digest: Top Research Updates", contents=body)
+# === MAIN ===
+if __name__ == "__main__":
+    print("🚀 Fetching latest AI articles...")
+    articles = fetch_articles()
+    if not articles:
+        print("⚠️ No articles found.")
+    else:
+        email_body = build_email(articles)
+        send_email("🧠 AI Research Digest", email_body)
 
-print("✅ Email sent successfully!")
